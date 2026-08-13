@@ -1,0 +1,37 @@
+name: Autotrader crawl (ON HOLD)
+
+# ON HOLD — no schedule trigger. The Playwright-based approach here (real
+# headless browser across ~148 dealer-listing pages + every dealer's review
+# page) is slow and costly on GitHub Actions minutes; holding this until a
+# more efficient scraping approach is found (e.g. hitting an underlying API
+# directly, like the HelloPeter/Takealot scripts do, instead of driving a
+# browser). The script and this workflow are kept as-is for reference and
+# manual testing — workflow_dispatch still works, it just won't fire on its
+# own. Re-add a `schedule:` block here once a better approach is in place.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright's Chromium
+        working-directory: core
+        run: playwright install --with-deps chromium
+
+      - name: Crawl Autotrader
+        working-directory: core
+        run: python autotrader_scraper.py

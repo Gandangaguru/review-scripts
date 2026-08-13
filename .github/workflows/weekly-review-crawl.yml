@@ -1,0 +1,40 @@
+name: Weekly review crawl (HelloPeter, Takealot, Google Play, Apple App Store)
+
+on:
+  schedule:
+    # Mondays 03:00 UTC (05:00 SAST) — mirrors the main app's other weekly cron
+    - cron: "0 3 * * 1"
+  workflow_dispatch: {} # lets you trigger a run manually from the Actions tab
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Each source runs independently — one failing shouldn't block the others.
+      - name: Crawl HelloPeter
+        working-directory: core
+        run: python main.py
+        continue-on-error: true
+
+      - name: Crawl Takealot
+        working-directory: core
+        run: python takealot_scraper.py
+        continue-on-error: true
+
+      - name: Crawl Google Play + Apple App Store
+        working-directory: appstores
+        run: python run_appstore_pipeline.py
+        continue-on-error: true

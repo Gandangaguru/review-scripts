@@ -1,0 +1,7 @@
+httpx
+requests
+python-dotenv
+supabase
+google-play-scraper
+loguru
+playwright

@@ -1,0 +1,31 @@
+name: Monthly Google Places crawl
+
+# Kept separate from the weekly workflow: this is the only source that goes
+# through Apify, and Apify usage here is capped to a monthly cadence.
+on:
+  schedule:
+    # 1st of the month, 03:00 UTC (05:00 SAST)
+    - cron: "0 3 1 * *"
+  workflow_dispatch: {} # lets you trigger a run manually from the Actions tab
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Crawl Google Places (via Apify)
+        working-directory: core
+        run: python crawl_google_places.py
