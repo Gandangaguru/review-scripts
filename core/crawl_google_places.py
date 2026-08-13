@@ -17,6 +17,7 @@ Runs monthly (not weekly like HelloPeter/Takealot) — Apify usage here is
 capped to a monthly cadence, so the lookback window is sized to a month
 plus a buffer rather than reusing platform_upsert's 10-day weekly window.
 """
+import argparse
 import os
 import time
 from datetime import datetime
@@ -140,30 +141,7 @@ def map_reviews_for_item(item: dict, business_by_place_id: dict) -> list[dict]:
     return rows
 
 
-def main():
-    print("📍 Starting Google Places crawl...")
-    targets = fetch_target_businesses()
-    if not targets:
-        print("No businesses with a google_place_id found — nothing to crawl.")
-        return
-
-    place_ids = [t["place_id"] for t in targets]
-    business_by_place_id = {t["place_id"]: t for t in targets}
-    print(
-        f"Found {len(place_ids)} businesses with a Google Place ID "
-        f"(reviews from the last {GOOGLE_PLACES_LOOKBACK_DAYS} days)"
-    )
-
-    run = start_run(place_ids)
-    print(f"  ▶️ Apify run {run['id']} started, waiting for it to finish...")
-    run = wait_for_run(run["id"])
-
-    if run["status"] != "SUCCEEDED":
-        raise RuntimeError(f"Apify run finished with status {run['status']}")
-
-    items = fetch_dataset_items(run["defaultDatasetId"])
-    print(f"Got {len(items)} place records from Apify")
-
+def ingest_items(items: list[dict], business_by_place_id: dict) -> int:
     total = 0
     for idx, item in enumerate(items, start=1):
         rows = map_reviews_for_item(item, business_by_place_id)
@@ -172,7 +150,47 @@ def main():
         inserted = save_platform_reviews(rows)
         total += inserted
         print(f"  [{idx}/{len(items)}] {item.get('title', '?')} → {inserted} new reviews")
+    return total
 
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--dataset-id",
+        help=(
+            "Ingest an already-finished Apify dataset instead of starting a new "
+            "run (e.g. one triggered manually from the Apify console). Find it "
+            "in the Apify console under Storage > Datasets, or on the run's "
+            "Output tab."
+        ),
+    )
+    args = parser.parse_args()
+
+    targets = fetch_target_businesses()
+    if not targets:
+        print("No businesses with a google_place_id found — nothing to crawl.")
+        return
+    business_by_place_id = {t["place_id"]: t for t in targets}
+
+    if args.dataset_id:
+        print(f"📍 Ingesting existing Apify dataset {args.dataset_id} (no new run started)...")
+        items = fetch_dataset_items(args.dataset_id)
+    else:
+        print("📍 Starting Google Places crawl...")
+        place_ids = list(business_by_place_id.keys())
+        print(
+            f"Found {len(place_ids)} businesses with a Google Place ID "
+            f"(reviews from the last {GOOGLE_PLACES_LOOKBACK_DAYS} days)"
+        )
+        run = start_run(place_ids)
+        print(f"  ▶️ Apify run {run['id']} started, waiting for it to finish...")
+        run = wait_for_run(run["id"])
+        if run["status"] != "SUCCEEDED":
+            raise RuntimeError(f"Apify run finished with status {run['status']}")
+        items = fetch_dataset_items(run["defaultDatasetId"])
+
+    print(f"Got {len(items)} place records from Apify")
+    total = ingest_items(items, business_by_place_id)
     print(f"🎉 Done. Inserted {total} new Google Places reviews.")
 
 
