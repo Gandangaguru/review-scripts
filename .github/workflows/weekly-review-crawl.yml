@@ -1,4 +1,4 @@
-name: Weekly review crawl (HelloPeter, Takealot, Google Play, Apple App Store)
+name: Weekly review crawl (HelloPeter, Takealot, Google Play)
 
 on:
   schedule:
@@ -34,7 +34,7 @@ jobs:
         run: python takealot_scraper.py
         continue-on-error: true
 
-      - name: Crawl Google Play + Apple App Store
+      - name: Crawl Google Play
         working-directory: appstores
         run: python run_appstore_pipeline.py
         continue-on-error: true
