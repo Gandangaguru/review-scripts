@@ -64,6 +64,27 @@ def fetch_target_businesses() -> list[dict]:
     return targets
 
 
+def check_apify_token() -> None:
+    """Fail fast with a readable message instead of a bare 401 traceback."""
+    token = (APIFY_TOKEN or "").strip()
+    if not token:
+        raise SystemExit("❌ APIFY_TOKEN is not set (GitHub: Settings → Secrets and variables → Actions).")
+    if token != APIFY_TOKEN:
+        raise SystemExit("❌ APIFY_TOKEN has leading/trailing whitespace or a newline — re-save the secret without it.")
+    if token.startswith(("'", '"')):
+        raise SystemExit("❌ APIFY_TOKEN includes quote characters — paste only the apify_api_… value.")
+    resp = requests.get("https://api.apify.com/v2/users/me", params={"token": token}, timeout=30)
+    if resp.status_code == 401:
+        raise SystemExit(
+            "❌ Apify rejected APIFY_TOKEN (401). It was revoked, regenerated or expired, or belongs to "
+            "another account. Copy a current token from Apify Console → Settings → API & Integrations "
+            "and update the APIFY_TOKEN secret."
+        )
+    resp.raise_for_status()
+    user = resp.json().get("data", {})
+    print(f"🔑 Apify token OK (account: {user.get('username', '?')})")
+
+
 def start_run(place_ids: list[str]) -> dict:
     url = f"https://api.apify.com/v2/acts/{ACTOR_ID}/runs"
     payload = {
@@ -166,6 +187,7 @@ def main():
     )
     args = parser.parse_args()
 
+    check_apify_token()
     targets = fetch_target_businesses()
     if not targets:
         print("No businesses with a google_place_id found — nothing to crawl.")
