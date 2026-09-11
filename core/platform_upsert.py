@@ -82,9 +82,21 @@ def make_row(
     branch: str = "",
     country_code: str = "ZA",
     original_language: str = "en",
+    business_id: str = None,
+    platform_response: str = None,
+    response_at: str = None,
 ) -> dict:
     """Normalized intermediate record; save_platform_reviews maps it to the
-    canonical schema. Signature unchanged so scrapers don't need edits."""
+    canonical schema. New keyword args are optional, so existing scrapers
+    don't need edits.
+
+    business_id: link the review to this exact `businesses` row (a specific
+        branch) instead of resolving by brand name. Branch-level sources
+        (Google Places — one listing per store) MUST pass it: resolving by
+        brand name sends every store's reviews to the brand-level row, and
+        the branch is lost.
+    platform_response / response_at: the business's public reply, if any.
+    """
     return {
         "source": source,
         "platform_review_id": str(platform_review_id),
@@ -102,6 +114,9 @@ def make_row(
         "country_code": country_code,
         "original_language": original_language,
         "sentiment": None,
+        "business_id": business_id,
+        "platform_response": platform_response or None,
+        "response_at": response_at or None,
     }
 
 
@@ -180,7 +195,7 @@ def save_platform_reviews(rows: list) -> int:
         if r["platform_review_id"] in existing:
             continue
         try:
-            biz_id = _business_id(r["brand_name"], r.get("industry"))
+            biz_id = r.get("business_id") or _business_id(r["brand_name"], r.get("industry"))
         except Exception as e:
             print(f"  ⚠️ Could not resolve business for {r['brand_name']}: {e}")
             continue
@@ -194,6 +209,9 @@ def save_platform_reviews(rows: list) -> int:
             "date_posted": r.get("review_date"),
             "sentiment_label": r.get("sentiment"),
             "external_review_id": r["platform_review_id"],
+            **({"platform_response": r["platform_response"], "is_responded": True}
+               if r.get("platform_response") else {}),
+            **({"response_at": r["response_at"]} if r.get("response_at") else {}),
         })
 
     inserted = 0

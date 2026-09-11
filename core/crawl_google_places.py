@@ -33,7 +33,9 @@ APIFY_TOKEN = os.getenv("APIFY_TOKEN")
 ACTOR_ID = "compass~crawler-google-places"  # Google Maps Scraper (Compass)
 POLL_SECONDS = 15
 RUN_TIMEOUT_MINUTES = 60
-GOOGLE_PLACES_LOOKBACK_DAYS = 35  # ~1 month + buffer for a monthly cron
+# Kev, 2026-09-11: "we only look back to 31 days". Also the hard ceiling —
+# --lookback-days can narrow the window but never widen it past this.
+GOOGLE_PLACES_LOOKBACK_DAYS = 31
 
 
 def fetch_target_businesses() -> list[dict]:
@@ -43,16 +45,17 @@ def fetch_target_businesses() -> list[dict]:
     while True:
         rows = (
             supabase.table("businesses")
-            .select("brand, name, industry, settings")
+            .select("id, brand, name, industry, settings, is_excluded")
             .range(offset, offset + 999)
             .execute()
             .data
         )
         for r in rows:
             place_id = (r.get("settings") or {}).get("google_place_id")
-            if place_id:
+            if place_id and not r.get("is_excluded"):
                 targets.append(
                     {
+                        "business_id": r["id"],
                         "place_id": place_id,
                         "brand_name": r.get("brand") or r.get("name") or "Unknown",
                         "industry": r.get("industry") or "Uncategorized",
@@ -85,13 +88,13 @@ def check_apify_token() -> None:
     print(f"🔑 Apify token OK (account: {user.get('username', '?')})")
 
 
-def start_run(place_ids: list[str]) -> dict:
+def start_run(place_ids: list[str], lookback_days: int = GOOGLE_PLACES_LOOKBACK_DAYS) -> dict:
     url = f"https://api.apify.com/v2/acts/{ACTOR_ID}/runs"
     payload = {
         "placeIds": place_ids,
         "maxReviews": 5000,
         "reviewsSort": "newest",
-        "reviewsStartDate": f"{GOOGLE_PLACES_LOOKBACK_DAYS} days",
+        "reviewsStartDate": f"{lookback_days} days",
         "language": "en",
         "scrapeReviewsPersonalData": False,
     }
@@ -149,10 +152,19 @@ def map_reviews_for_item(item: dict, business_by_place_id: dict) -> list[dict]:
                 source="Google Places",
                 platform_review_id=review_id,
                 brand_name=brand_name,
+                # The exact branch row for this listing. Without it the saver
+                # resolves by brand name and every store's reviews land on the
+                # brand-level row — branch intelligence would have nothing.
+                business_id=target.get("business_id"),
                 reviewer_name=r.get("reviewerName") or r.get("name"),
                 rating=r.get("rating") or r.get("stars"),
                 review_text=r.get("text") or r.get("textTranslated") or "",
-                review_date=published_at.date().isoformat(),
+                # Full timestamp, not .date(): a date-only value is stored as
+                # midnight and kills hour-level trend charts (the HelloPeter
+                # truncation bug, 2026-09-07).
+                review_date=published_at.isoformat(),
+                platform_response=r.get("responseFromOwnerText") or None,
+                response_at=r.get("responseFromOwnerDate") or None,
                 review_url=item.get("url"),
                 city=item.get("city") or "",
                 country_code=item.get("countryCode") or "ZA",
@@ -185,10 +197,20 @@ def main():
             "Output tab."
         ),
     )
+    parser.add_argument("--brand", help="Only crawl this brand's branches (e.g. KFC).")
+    parser.add_argument(
+        "--lookback-days", type=int, default=GOOGLE_PLACES_LOOKBACK_DAYS,
+        help=f"How far back to pull reviews (max {GOOGLE_PLACES_LOOKBACK_DAYS}, the ReviewIQ lookback policy).",
+    )
     args = parser.parse_args()
+    if not 1 <= args.lookback_days <= GOOGLE_PLACES_LOOKBACK_DAYS:
+        raise SystemExit(f"❌ --lookback-days must be 1–{GOOGLE_PLACES_LOOKBACK_DAYS} (ReviewIQ looks back {GOOGLE_PLACES_LOOKBACK_DAYS} days).")
 
     check_apify_token()
     targets = fetch_target_businesses()
+    if args.brand:
+        want = args.brand.strip().lower()
+        targets = [t for t in targets if (t["brand_name"] or "").strip().lower() == want]
     if not targets:
         print("No businesses with a google_place_id found — nothing to crawl.")
         return
@@ -202,9 +224,9 @@ def main():
         place_ids = list(business_by_place_id.keys())
         print(
             f"Found {len(place_ids)} businesses with a Google Place ID "
-            f"(reviews from the last {GOOGLE_PLACES_LOOKBACK_DAYS} days)"
+            f"(reviews from the last {args.lookback_days} days)"
         )
-        run = start_run(place_ids)
+        run = start_run(place_ids, args.lookback_days)
         print(f"  ▶️ Apify run {run['id']} started, waiting for it to finish...")
         run = wait_for_run(run["id"])
         if run["status"] != "SUCCEEDED":
