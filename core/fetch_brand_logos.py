@@ -261,6 +261,12 @@ def main():
     ap.add_argument("--brand")
     ap.add_argument("--file", help="Manual logo file for --brand (PNG/JPG/WebP)")
     ap.add_argument("--missing-only", action="store_true")
+    # A targeted re-run: the brands that need attention (no logo stored, or a
+    # stored logo under 64px) are written to logo_worklist.csv, so one run can
+    # cover exactly those instead of 70-odd --brand invocations.
+    ap.add_argument("--worklist", nargs="?", const="logo_worklist.csv",
+                    help="Only process brands listed in this CSV's `brand` column "
+                         "(default logo_worklist.csv)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -274,6 +280,17 @@ def main():
         return
 
     rows = [r for r in csv.DictReader(open(args.csv)) if (r.get("domain") or "").strip()]
+    if args.worklist:
+        wanted = {(r.get("brand") or "").strip().lower()
+                  for r in csv.DictReader(open(args.worklist))}
+        if not wanted:
+            raise SystemExit(f"❌ {args.worklist} lists no brands")
+        before = len(rows)
+        rows = [r for r in rows if r["brand"].strip().lower() in wanted]
+        skipped = sorted(wanted - {r["brand"].strip().lower() for r in rows})
+        print(f"Worklist {args.worklist}: {len(rows)} of {before} brands selected"
+              + (f"; {len(skipped)} listed but have no domain in {args.csv}: "
+                 + ", ".join(skipped) if skipped else ""))
     if args.brand:
         rows = [r for r in rows if r["brand"].strip().lower() == args.brand.strip().lower()]
         if not rows:
