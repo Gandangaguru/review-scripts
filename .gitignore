@@ -16,3 +16,6 @@ venv/
 # Scraper output / scratch data
 *.log
 *.csv
+
+# Apify run progress (resume state)
+core/apify_runs/

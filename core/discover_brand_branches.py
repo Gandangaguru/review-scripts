@@ -13,17 +13,21 @@ Usage (from core/):
     python discover_brand_branches.py --brand KFC                # register new branches
     python crawl_google_places.py --brand KFC                       # last 31 days of reviews for them
 
+Interrupted, or Apify refused a start? Run the same command again. Every run is
+recorded in core/apify_runs/ the moment it starts (see apify_runs.py), so
+finished provinces are reused, not paid for twice. A --dry-run keeps that record
+too, so the real run afterwards reuses the dry run's datasets. --fresh ignores it.
+
 Cost: one Apify Google Maps Scraper run, places only (no reviews in this step),
 one search per province. Check the Apify console for the run's actual cost.
 """
 import argparse
 import csv
 import re
-import time
 from datetime import datetime, timezone
 
-import requests
 
+import apify_runs
 from crawl_google_places import APIFY_TOKEN, ACTOR_ID, POLL_SECONDS, check_apify_token, fetch_dataset_items
 from platform_upsert import supabase
 
@@ -66,45 +70,27 @@ def branch_name_from(title: str, brand: str, aliases: list[str], city: str) -> s
     return name or (city or "").strip() or title
 
 
-def start_discovery_run(search: str, max_per_search: int) -> dict:
-    payload = {
-        "searchStringsArray": [search],
-        # One search per province: a single country-wide search stops at the
-        # few hundred results Google will show for one query.
-        "locationQuery": None,
-        "customGeolocation": None,
-        "maxCrawledPlacesPerSearch": max_per_search,
-        "language": "en",
-        "countryCode": "za",
-        "maxReviews": 0,
-        "maxImages": 0,
-        "scrapeContacts": False,
-        "skipClosedPlaces": True,
+def discovery_bodies(search: str, max_per_search: int, provinces: list[str]) -> dict:
+    """One Apify run body per province: a single country-wide search stops at
+    the few hundred results Google will show for one query."""
+    return {
+        province: {
+            "searchStringsArray": [search],
+            "locationQuery": f"{province}, South Africa",
+            "maxCrawledPlacesPerSearch": max_per_search,
+            "language": "en",
+            "countryCode": "za",
+            "maxReviews": 0,
+            "maxImages": 0,
+            "scrapeContacts": False,
+            "skipClosedPlaces": True,
+        }
+        for province in provinces
     }
-    runs = []
-    for province in PROVINCES:
-        body = {**payload, "locationQuery": f"{province}, South Africa"}
-        body = {k: v for k, v in body.items() if v is not None}
-        resp = requests.post(
-            f"https://api.apify.com/v2/acts/{ACTOR_ID}/runs",
-            params={"token": APIFY_TOKEN}, json=body, timeout=30,
-        )
-        resp.raise_for_status()
-        runs.append((province, resp.json()["data"]))
-        print(f"  ▶️ {province}: run {runs[-1][1]['id']} started")
-    return runs
 
 
-def wait(run_id: str) -> dict:
-    deadline = time.time() + RUN_TIMEOUT_MINUTES * 60
-    while time.time() < deadline:
-        resp = requests.get(f"https://api.apify.com/v2/actor-runs/{run_id}", params={"token": APIFY_TOKEN}, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()["data"]
-        if data["status"] in ("SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"):
-            return data
-        time.sleep(POLL_SECONDS)
-    raise TimeoutError(f"Apify run {run_id} did not finish in {RUN_TIMEOUT_MINUTES} min")
+def job_name(brand: str) -> str:
+    return "discover_" + re.sub(r"[^A-Za-z0-9]+", "_", brand).strip("_")
 
 
 def existing_place_ids() -> set[str]:
@@ -135,6 +121,9 @@ def main():
     ap.add_argument("--industry", help="Industry label if the brand has no existing row (must exist in industry_labels)")
     ap.add_argument("--max-per-search", type=int, default=500)
     ap.add_argument("--dataset-id", action="append", default=[], help="Re-use finished discovery dataset(s) instead of new runs")
+    ap.add_argument("--provinces", help='Comma-separated subset, e.g. "Limpopo,Free State" (default: all 9)')
+    ap.add_argument("--max-concurrent", type=int, default=2, help="Apify runs at once (default 2; Apify plan memory caps this)")
+    ap.add_argument("--fresh", action="store_true", help="Ignore saved progress in core/apify_runs/ and start new runs")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -149,14 +138,27 @@ def main():
         for d in args.dataset_id:
             items += fetch_dataset_items(d)
     else:
-        print(f"🔎 Discovering {brand} branches across 9 provinces…")
-        for province, run in start_discovery_run(args.search or brand, args.max_per_search):
-            done = wait(run["id"])
-            if done["status"] != "SUCCEEDED":
-                print(f"  ⚠️ {province}: run {done['status']} — skipped (re-run with --dataset-id later)")
+        provinces = PROVINCES
+        if args.provinces:
+            provinces = [canonical_province(p) for p in args.provinces.split(",")]
+            if None in provinces:
+                raise SystemExit(f"❌ Unknown province in --provinces. Use: {', '.join(PROVINCES)}")
+        job = job_name(brand)
+        if args.fresh:
+            apify_runs.discard(job)
+        print(f"🔎 Discovering {brand} branches across {len(provinces)} province(s)…")
+        datasets = apify_runs.run_jobs(
+            APIFY_TOKEN, ACTOR_ID, job,
+            discovery_bodies(args.search or brand, args.max_per_search, provinces),
+            max_concurrent=args.max_concurrent, poll_seconds=POLL_SECONDS,
+            timeout_minutes=RUN_TIMEOUT_MINUTES,
+        )
+        for province, dataset_id in datasets.items():
+            if not dataset_id:
+                print(f"  ⚠️ {province}: no results — skipped (run the same command again to retry)")
                 continue
-            got = fetch_dataset_items(done["defaultDatasetId"])
-            print(f"  ✅ {province}: {len(got)} places (dataset {done['defaultDatasetId']})")
+            got = fetch_dataset_items(dataset_id)
+            print(f"  📦 {province}: {len(got)} places (dataset {dataset_id})")
             items += got
 
     known = existing_place_ids()
@@ -226,6 +228,8 @@ def main():
         return
     for i in range(0, len(new_rows), 100):
         supabase.table("businesses").insert(new_rows[i:i + 100]).execute()
+    if not args.dataset_id:
+        apify_runs.mark_done(job_name(brand))
     print(f"🎉 Registered {len(new_rows)} branches. Next: python crawl_google_places.py --brand \"{brand}\"")
 
 
