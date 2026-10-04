@@ -1,4 +1,4 @@
-import asyncio, httpx
+import asyncio, httpx, sys
 from datetime import datetime
 
 from platform_upsert import save_platform_reviews, make_row, MIN_REVIEW_DATE
@@ -55,9 +55,12 @@ async def scrape_reviews(client, business_slug, industry, brand_name=None):
 
 async def main():
     async with httpx.AsyncClient(timeout=30) as client:
-        print(f"Scraping {len(HELLOPETER_BUSINESSES)} brands from config_businesses.py")
+        # Optional: python main.py --brand "Burger King"  scrapes just that brand.
+        only = sys.argv[sys.argv.index("--brand") + 1].lower() if "--brand" in sys.argv else None
+        businesses = [b for b in HELLOPETER_BUSINESSES if not only or b["brand_name"].lower() == only]
+        print(f"Scraping {len(businesses)} brands from config_businesses.py")
         print(f"Collecting reviews on/after {MIN_REVIEW_DATE}")
-        for biz in HELLOPETER_BUSINESSES:
+        for biz in businesses:
             rows = await scrape_reviews(client, biz["slug"], biz["industry"], biz["brand_name"])
             saved = save_platform_reviews(rows)
             print(f"  ✅ {biz['brand_name']} → {saved} new reviews saved ({len(rows)} fetched)")

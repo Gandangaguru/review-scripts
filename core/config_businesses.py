@@ -41,5 +41,6 @@ HELLOPETER_BUSINESSES = [
     {"brand_name": "Mr D Food", "slug": "mr-delivery", "industry": "Restaurants"},
     {"brand_name": "KFC South Africa", "slug": "kfc", "industry": "Restaurants"},
     {"brand_name": "Nando's", "slug": "nandos", "industry": "Restaurants"},
+    {"brand_name": "Burger King", "slug": "burger-king", "industry": "Restaurants"},  # confirm slug with verify_slugs.py
     {"brand_name": "Debonairs Pizza", "slug": "debonairs-pizza", "industry": "Restaurants"},
 ]
