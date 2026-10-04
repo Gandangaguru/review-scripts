@@ -71,7 +71,7 @@ def discard(job: str) -> None:
 
 
 def run_jobs(token: str, actor_id: str, job: str, bodies: dict, *, max_concurrent: int = 2,
-             poll_seconds: int = 15, timeout_minutes: int = 120) -> dict:
+             poll_seconds: int = 15, timeout_minutes: int = 120, run_params: dict = None) -> dict:
     """Run one Apify actor run per key in `bodies`; return {key: dataset_id}.
 
     Keys whose runs failed twice map to None. Safe to interrupt at any point:
@@ -95,7 +95,19 @@ def run_jobs(token: str, actor_id: str, job: str, bodies: dict, *, max_concurren
         for key in bodies:
             s = state.get(key) or {}
             if s.get("run_id") and s.get("status") not in TERMINAL:
-                r = requests.get(f"{API}/actor-runs/{s['run_id']}", params={"token": token}, timeout=30)
+                # A 5xx or dropped connection on a status poll is Apify hiccuping, not a
+                # failed run: wait and poll again instead of crashing the whole script.
+                r = None
+                for attempt in range(5):
+                    try:
+                        r = requests.get(f"{API}/actor-runs/{s['run_id']}", params={"token": token}, timeout=30)
+                        if r.status_code < 500:
+                            break
+                    except requests.exceptions.RequestException:
+                        r = None
+                    time.sleep(5 * (attempt + 1))
+                if r is None or r.status_code >= 500:
+                    continue  # still unwell: leave the run as it is and check next cycle
                 r.raise_for_status()
                 d = r.json()["data"]
                 if d["status"] != s.get("status"):
@@ -125,7 +137,7 @@ def run_jobs(token: str, actor_id: str, job: str, bodies: dict, *, max_concurren
         for key in pending:
             if len(active) >= max_concurrent:
                 break
-            r = requests.post(f"{API}/acts/{actor_id}/runs", params={"token": token}, json=bodies[key], timeout=30)
+            r = requests.post(f"{API}/acts/{actor_id}/runs", params={"token": token, **(run_params or {})}, json=bodies[key], timeout=30)
             if r.status_code in LIMIT_CODES:
                 if not active:
                     raise SystemExit(

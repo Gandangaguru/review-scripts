@@ -159,6 +159,10 @@ def main():
                 continue
             got = fetch_dataset_items(dataset_id)
             print(f"  📦 {province}: {len(got)} places (dataset {dataset_id})")
+            # Google often leaves `state` blank on SA listings (Burger King: all of them).
+            # The run was a search inside this province, so remember it as the fallback.
+            for g in got:
+                g["_run_province"] = province
             items += got
 
     known = existing_place_ids()
@@ -188,7 +192,7 @@ def main():
             "brand": brand,
             "branch_name": branch_name_from(title, brand, args.alias, city),
             "city": city,
-            "province": canonical_province(it.get("state")),
+            "province": canonical_province(it.get("state")) or canonical_province(it.get("_run_province")),
             "industry": industry,
             "country": "ZA",
             "currency": "ZAR",
