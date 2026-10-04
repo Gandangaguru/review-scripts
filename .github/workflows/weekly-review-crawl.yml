@@ -23,6 +23,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Install browser (HelloPeter is scraped through a real browser)
+        run: playwright install --with-deps chromium
+
       # Each source runs independently — one failing shouldn't block the others.
       - name: Crawl HelloPeter
         working-directory: core

@@ -1,68 +1,48 @@
-import asyncio, httpx, sys
+"""HelloPeter crawl (weekly). Drives a browser because HelloPeter retired its public API in 2026-10.
+
+  python main.py                          all brands in config_businesses.py
+  python main.py --brand "Burger King"    one brand
+  python main.py --dry-run                fetch and count, save nothing
+Backfill: REVIEW_LOOKBACK_DAYS=34 python main.py --brand "Burger King"
+"""
+import sys
 from datetime import datetime
 
-from platform_upsert import save_platform_reviews, make_row, MIN_REVIEW_DATE
+from playwright.sync_api import sync_playwright
+
+from platform_upsert import save_platform_reviews, MIN_REVIEW_DATE
 from config_businesses import HELLOPETER_BUSINESSES
+from hellopeter_scraper import scrape_business
 
 CUTOFF_DATE = datetime.fromisoformat(MIN_REVIEW_DATE)
-
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Referer': 'https://www.hellopeter.com/'
-}
+UA = ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) '
+      'Chrome/124.0.0.0 Safari/537.36')
 
 
-async def scrape_reviews(client, business_slug, industry, brand_name=None):
-    rows = []
-    page = 1
-    while True:
-        try:
-            url = f"https://api.hellopeter.com/consumer/business/{business_slug}/reviews?page={page}"
-            r = await client.get(url, headers=HEADERS)
-            data = r.json()
-            items = data.get('data', [])
-            if not items:
-                break
-            for item in items:
-                created = item.get('created_at', '')
-                try:
-                    review_date = datetime.strptime(created[:10], '%Y-%m-%d')
-                except:
-                    review_date = datetime.now()
-                if review_date < CUTOFF_DATE:
-                    return rows  # newest-first: everything after this is older
-                rows.append(make_row(
-                    source="HelloPeter",
-                    platform_review_id=item.get('id'),
-                    brand_name=brand_name or item.get('business_name', business_slug),
-                    reviewer_name=item.get('authorDisplayName'),
-                    rating=item.get('review_rating'),
-                    review_title=item.get('review_title'),
-                    review_text=item.get('review_content'),
-                    review_date=created[:10],
-                    review_url=f"https://www.hellopeter.com/{business_slug}/reviews/{item.get('id')}",
-                    industry=industry,
-                ))
-            if page >= data.get('last_page', 1):
-                break
-            page += 1
-        except Exception as e:
-            print(f"  Error on page {page}: {e}")
-            break
-    return rows
-
-
-async def main():
-    async with httpx.AsyncClient(timeout=30) as client:
-        # Optional: python main.py --brand "Burger King"  scrapes just that brand.
-        only = sys.argv[sys.argv.index("--brand") + 1].lower() if "--brand" in sys.argv else None
-        businesses = [b for b in HELLOPETER_BUSINESSES if not only or b["brand_name"].lower() == only]
-        print(f"Scraping {len(businesses)} brands from config_businesses.py")
-        print(f"Collecting reviews on/after {MIN_REVIEW_DATE}")
+def main():
+    only = sys.argv[sys.argv.index("--brand") + 1].lower() if "--brand" in sys.argv else None
+    dry = "--dry-run" in sys.argv
+    businesses = [b for b in HELLOPETER_BUSINESSES if not only or b["brand_name"].lower() == only]
+    print(f"Scraping {len(businesses)} brands from config_businesses.py")
+    print(f"Collecting reviews on/after {MIN_REVIEW_DATE}{' (dry run, nothing saved)' if dry else ''}")
+    empty = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_context(user_agent=UA, locale="en-ZA").new_page()
         for biz in businesses:
-            rows = await scrape_reviews(client, biz["slug"], biz["industry"], biz["brand_name"])
-            saved = save_platform_reviews(rows)
+            try:
+                rows = scrape_business(page, biz["slug"], biz["industry"], biz["brand_name"], CUTOFF_DATE)
+            except Exception as e:
+                print(f"  ❌ {biz['brand_name']} → {type(e).__name__}: {str(e)[:120]}")
+                empty.append(biz["brand_name"])
+                continue
+            saved = 0 if dry else save_platform_reviews(rows)
             print(f"  ✅ {biz['brand_name']} → {saved} new reviews saved ({len(rows)} fetched)")
+        browser.close()
+    if empty:
+        print(f"\nFailed: {', '.join(empty)}")
+        sys.exit(1)  # makes the GitHub Actions step show red instead of silently saving nothing
 
-asyncio.run(main())
+
+if __name__ == "__main__":
+    main()

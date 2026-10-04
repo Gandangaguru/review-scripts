@@ -24,7 +24,7 @@ TABLE = "reviews"
 # hardcoded cutoff would mean every run re-fetches all history from that date
 # forever. 10 days gives a weekly cron a buffer against a missed/delayed run;
 # save_platform_reviews() dedupes on external_review_id so the overlap is free.
-REVIEW_LOOKBACK_DAYS = 10
+REVIEW_LOOKBACK_DAYS = int(os.getenv("REVIEW_LOOKBACK_DAYS", "10"))  # override for a one-off backfill
 MIN_REVIEW_DATE = (datetime.now(timezone.utc) - timedelta(days=REVIEW_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
 
 # specific industry -> consolidated bucket (used by dashboards / kept for reference)
@@ -85,6 +85,7 @@ def make_row(
     business_id: str = None,
     platform_response: str = None,
     response_at: str = None,
+    source_url_exact: bool = False,
 ) -> dict:
     """Normalized intermediate record; save_platform_reviews maps it to the
     canonical schema. New keyword args are optional, so existing scrapers
@@ -117,6 +118,7 @@ def make_row(
         "business_id": business_id,
         "platform_response": platform_response or None,
         "response_at": response_at or None,
+        "source_url_exact": source_url_exact,
     }
 
 
@@ -212,6 +214,10 @@ def save_platform_reviews(rows: list) -> int:
             **({"platform_response": r["platform_response"], "is_responded": True}
                if r.get("platform_response") else {}),
             **({"response_at": r["response_at"]} if r.get("response_at") else {}),
+            # Direct link to this review on its own platform, only when the
+            # scraper says the link is exact (make_row(..., source_url_exact=True)).
+            **({"source_url": r["review_url"], "source_url_is_exact": True}
+               if r.get("review_url") and r.get("source_url_exact") else {}),
         })
 
     inserted = 0
