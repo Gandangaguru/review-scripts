@@ -78,8 +78,8 @@ async def scrape_brand(page, slug, industry, brand_name):
                     rating=c["rating"] or None,
                     review_title=c["title"],
                     review_text=c["text"],
-                    review_date=dt.strftime("%Y-%m-%d"),
-                    review_url="https://www.hellopeter.com" + c["href"],
+                    review_date=dt.strftime("%Y-%m-%dT%H:%M:00+02:00"),
+                    review_url="https://www.hellopeter.com" + c["href"], source_url_exact=True,
                     industry=industry,
                 ))
         if oldest and oldest < DATE_FROM:

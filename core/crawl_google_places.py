@@ -19,12 +19,13 @@ plus a buffer rather than reusing platform_upsert's 10-day weekly window.
 """
 import argparse
 import os
-import time
+import re
 from datetime import datetime
 
 import requests
 from dotenv import load_dotenv
 
+import apify_runs
 from platform_upsert import make_row, save_platform_reviews, supabase
 
 load_dotenv()
@@ -88,9 +89,8 @@ def check_apify_token() -> None:
     print(f"🔑 Apify token OK (account: {user.get('username', '?')})")
 
 
-def start_run(place_ids: list[str], lookback_days: int = GOOGLE_PLACES_LOOKBACK_DAYS) -> dict:
-    url = f"https://api.apify.com/v2/acts/{ACTOR_ID}/runs"
-    payload = {
+def run_body(place_ids: list[str], lookback_days: int = GOOGLE_PLACES_LOOKBACK_DAYS) -> dict:
+    return {
         "placeIds": place_ids,
         "maxReviews": 5000,
         "reviewsSort": "newest",
@@ -98,24 +98,6 @@ def start_run(place_ids: list[str], lookback_days: int = GOOGLE_PLACES_LOOKBACK_
         "language": "en",
         "scrapeReviewsPersonalData": False,
     }
-    resp = requests.post(url, params={"token": APIFY_TOKEN}, json=payload, timeout=30)
-    resp.raise_for_status()
-    return resp.json()["data"]
-
-
-def wait_for_run(run_id: str) -> dict:
-    url = f"https://api.apify.com/v2/actor-runs/{run_id}"
-    deadline = time.time() + RUN_TIMEOUT_MINUTES * 60
-    while time.time() < deadline:
-        resp = requests.get(url, params={"token": APIFY_TOKEN}, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()["data"]
-        status = data["status"]
-        if status in ("SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"):
-            return data
-        print(f"  ⏳ run {run_id}: {status} — checking again in {POLL_SECONDS}s")
-        time.sleep(POLL_SECONDS)
-    raise TimeoutError(f"Apify run {run_id} did not finish within {RUN_TIMEOUT_MINUTES} minutes")
 
 
 def fetch_dataset_items(dataset_id: str) -> list[dict]:
@@ -198,6 +180,8 @@ def main():
         ),
     )
     parser.add_argument("--brand", help="Only crawl this brand's branches (e.g. KFC).")
+    parser.add_argument("--fresh", action="store_true",
+                        help="Ignore saved progress in core/apify_runs/ and start a new Apify run")
     parser.add_argument(
         "--lookback-days", type=int, default=GOOGLE_PLACES_LOOKBACK_DAYS,
         help=f"How far back to pull reviews (max {GOOGLE_PLACES_LOOKBACK_DAYS}, the ReviewIQ lookback policy).",
@@ -226,16 +210,25 @@ def main():
             f"Found {len(place_ids)} businesses with a Google Place ID "
             f"(reviews from the last {args.lookback_days} days)"
         )
-        run = start_run(place_ids, args.lookback_days)
-        print(f"  ▶️ Apify run {run['id']} started, waiting for it to finish...")
-        run = wait_for_run(run["id"])
-        if run["status"] != "SUCCEEDED":
-            raise RuntimeError(f"Apify run finished with status {run['status']}")
-        items = fetch_dataset_items(run["defaultDatasetId"])
+        # Recorded in core/apify_runs/ as soon as Apify accepts it: if this
+        # process dies mid-wait, the same command resumes instead of the run's
+        # results being orphaned on Apify (the 2026-09-11 KFC loss).
+        job = "crawl_" + re.sub(r"[^A-Za-z0-9]+", "_", args.brand or "all").strip("_")
+        if args.fresh:
+            apify_runs.discard(job)
+        datasets = apify_runs.run_jobs(
+            APIFY_TOKEN, ACTOR_ID, job, {"reviews": run_body(place_ids, args.lookback_days)},
+            max_concurrent=1, poll_seconds=POLL_SECONDS, timeout_minutes=RUN_TIMEOUT_MINUTES,
+        )
+        if not datasets["reviews"]:
+            raise RuntimeError("Apify run did not succeed — run the same command again to retry")
+        items = fetch_dataset_items(datasets["reviews"])
 
     print(f"Got {len(items)} place records from Apify")
     total = ingest_items(items, business_by_place_id)
     print(f"🎉 Done. Inserted {total} new Google Places reviews.")
+    if not args.dataset_id:
+        apify_runs.mark_done(job)
 
 
 if __name__ == "__main__":

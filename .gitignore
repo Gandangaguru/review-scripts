@@ -16,3 +16,10 @@ venv/
 # Scraper output / scratch data
 *.log
 *.csv
+
+# Apify run progress (resume state)
+core/apify_runs/
+core/google_reviews_preview.csv
+core/google_reviews_sample.json
+core/discovered_missing_brands.csv
+core/places_api_response.json
