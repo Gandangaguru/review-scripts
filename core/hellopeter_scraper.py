@@ -111,7 +111,7 @@ def to_row(r: dict, business_slug: str, industry: str, brand_name: str):
         rating=r.get("rating"),
         review_title=r.get("title"),
         review_text=r.get("content") if isinstance(r.get("content"), str) else "",
-        review_date=iso[:10],
+        review_date=iso,
         review_url=f"https://www.hellopeter.com/{business_slug}/reviews/{_first(r, ('permalink', 'slug', 'id'))}",
         industry=industry,
         platform_response=_reply_text(reply),
