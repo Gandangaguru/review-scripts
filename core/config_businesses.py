@@ -14,7 +14,7 @@ HELLOPETER_BUSINESSES = [
     {"brand_name": "Nedbank", "slug": "nedbank", "industry": "Banking"},
     {"brand_name": "African Bank", "slug": "african-bank", "industry": "Banking"},
     {"brand_name": "Discovery Bank", "slug": "discovery-bank", "industry": "Banking"},
-    {"brand_name": "TymeBank", "slug": "tymebank", "industry": "Banking"},
+    {"brand_name": "GoTyme", "slug": "tymebank", "industry": "Banking"},
 
     # --- Telecoms / ISP ---
     {"brand_name": "Vodacom", "slug": "vodacom", "industry": "ISP"},
@@ -36,6 +36,8 @@ HELLOPETER_BUSINESSES = [
     {"brand_name": "Woolworths", "slug": "woolworths", "industry": "Retail"},
     {"brand_name": "Mr Price", "slug": "mr-price", "industry": "Retail"},
     {"brand_name": "Edgars", "slug": "edgars", "industry": "Retail"},
+    {"brand_name": "Checkers", "slug": "checkers-checkers-hypers", "industry": "Traditional Supermarkets & Grocery Retail"},
+    {"brand_name": "Shoprite", "slug": "shoprite", "industry": "Traditional Supermarkets & Grocery Retail"},
 
     # --- Restaurants / delivery ---
     {"brand_name": "Mr D Food", "slug": "mr-delivery", "industry": "Restaurants"},
@@ -43,4 +45,26 @@ HELLOPETER_BUSINESSES = [
     {"brand_name": "Nando's", "slug": "nandos", "industry": "Restaurants"},
     {"brand_name": "Burger King", "slug": "burger-king-south-africa-pty-ltd", "industry": "Restaurants"},
     {"brand_name": "Debonairs Pizza", "slug": "debonairs-pizza", "industry": "Restaurants"},
+
+    # --- Fashion (added 2026-11-21) ---
+    {"brand_name": "Foschini", "slug": "foschini", "industry": "Fashion, Apparel & Footwear"},
+    {"brand_name": "Bash", "slug": "bash", "industry": "E-Commerce & Online Marketplaces"},
+    {"brand_name": "Jet", "slug": "jet", "industry": "Fashion, Apparel & Footwear"},
+
+    # --- Restaurants (added 2026-11-21) ---
+    {"brand_name": "McDonald's", "slug": "mcdonalds", "industry": "QSR"},
+    {"brand_name": "Pedros", "slug": "pedros-chicken", "industry": "QSR"},
+    {"brand_name": "RocoMamas", "slug": "rocomamas", "industry": "QSR"},
+    {"brand_name": "Hungry Lion", "slug": "hungry-lion", "industry": "QSR"},
+    {"brand_name": "Steers", "slug": "steers", "industry": "QSR"},
+    {"brand_name": "Wimpy", "slug": "wimpy", "industry": "QSR"},
+    {"brand_name": "Spur", "slug": "spur-steak-ranches", "industry": "QSR"},
+
+    # --- Insurance (added 2026-11-21) ---
+    {"brand_name": "Naked Insurance", "slug": "naked-insurance", "industry": "Insurance"},
+    {"brand_name": "Pineapple", "slug": "pineapple-insurance", "industry": "Insurance"},
+    {"brand_name": "Budget Insurance", "slug": "budget-insurance", "industry": "Insurance"},
+    {"brand_name": "Hollard", "slug": "hollard-insurance", "industry": "Insurance"},
+    {"brand_name": "1st for Women", "slug": "first-for-women-insurance", "industry": "Insurance"},
+
 ]
