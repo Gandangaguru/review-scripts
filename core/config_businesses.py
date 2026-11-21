@@ -41,7 +41,7 @@ HELLOPETER_BUSINESSES = [
 
     # --- Restaurants / delivery ---
     {"brand_name": "Mr D Food", "slug": "mr-delivery", "industry": "Restaurants"},
-    {"brand_name": "KFC South Africa", "slug": "kfc", "industry": "Restaurants"},
+    {"brand_name": "KFC", "slug": "kfc", "industry": "Restaurants"},
     {"brand_name": "Nando's", "slug": "nandos", "industry": "Restaurants"},
     {"brand_name": "Burger King", "slug": "burger-king-south-africa-pty-ltd", "industry": "Restaurants"},
     {"brand_name": "Debonairs Pizza", "slug": "debonairs-pizza", "industry": "Restaurants"},
