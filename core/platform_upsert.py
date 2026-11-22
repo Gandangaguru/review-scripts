@@ -128,33 +128,47 @@ _business_cache = None  # lower(name or brand) -> business id
 
 
 def _load_businesses():
+    """name/brand (lower-case) -> business id, used to file a platform's reviews under a brand.
+
+    2026-11-22: only brand-level rows (no branch_name) are candidates, an exact name match beats
+    a brand match, and ties go to the OLDEST row. Before this, a brand with no brand-level row
+    (Hungry Lion, Foschini, Hollard) had its HelloPeter reviews filed under whichever branch the
+    unordered page listed last, and Vodacom flipped between "Vodacom Shop" and "Vodacom App"
+    from run to run, so the reply refresh looked in a different place from the crawl."""
     global _business_cache
     if _business_cache is not None:
         return _business_cache
-    cache = {}
-    offset = 0
+    rows, offset = [], 0
     while True:
-        rows = (supabase.table("businesses")
-                .select("id, name, brand, branch_name")
+        page = (supabase.table("businesses")
+                .select("id, name, brand, branch_name, created_at")
+                .order("created_at").order("id")
                 .range(offset, offset + 999).execute().data)
-        for r in rows:
-            prefer = not (r.get("branch_name") or "")  # brand-level rows win
-            for key in (r.get("brand"), r.get("name")):
-                if not key:
-                    continue
-                k = key.strip().lower()
-                if k not in cache or prefer:
-                    cache[k] = r["id"]
-        if len(rows) < 1000:
+        rows.extend(page)
+        if len(page) < 1000:
             break
         offset += 1000
-    _business_cache = cache
-    return cache
+    by_name, by_brand = {}, {}
+    for r in rows:  # oldest first, so setdefault keeps the oldest
+        if (r.get("branch_name") or "").strip():
+            continue
+        if r.get("name"):
+            by_name.setdefault(r["name"].strip().lower(), r["id"])
+        if r.get("brand"):
+            by_brand.setdefault(r["brand"].strip().lower(), r["id"])
+    _business_cache = {**by_brand, **by_name}
+    return _business_cache
+
+
+# Brands whose HelloPeter reviews have always lived on a brand-level row with a longer name.
+# (Vodacom's home row was renamed from "Vodacom Shop" to "Vodacom" on 2026-11-22, so it needs no entry.)
+HOME_BUSINESS = {"telkom": "telkom shop", "gotyme": "gotyme bank"}
 
 
 def _business_id(brand_name: str, industry: str) -> str:
     cache = _load_businesses()
     key = (brand_name or "").strip().lower()
+    key = HOME_BUSINESS.get(key, key) if HOME_BUSINESS.get(key, key) in cache else key
     if key in cache:
         return cache[key]
     new_id = str(uuid.uuid4())
